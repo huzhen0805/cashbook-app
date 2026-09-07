@@ -1,15 +1,16 @@
 {
-    "name": "个人记账本",
-    "short_name": "记账本",
-    "start_url": "./ssq.html",
-    "display": "standalone",
-    "background_color": "#f5f7fa",
-    "theme_color": "#2563eb",
-    "icons": [
-        {
-            "src": "icon.png",
-            "sizes": "192x192",
-            "type": "image/png"
-        }
-    ]
+  "name": "个人记账本",
+  "short_name": "记账本",
+  "start_url": "./ssq.html",
+  "display": "standalone",
+  "background_color": "#f5f7fa",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "description": "这是一款简单易用的个人记账工具。快速录入收支明细，梳理日常消费，实时了解资金流向，帮你养成理性消费、规划财务的好习惯。"
 }
