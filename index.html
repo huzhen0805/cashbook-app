@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>个人记账本</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/crypto-js@3.1.9-1/crypto-js.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,sans-serif}
+body{background:#f5f7fa;color:#222;padding-bottom:60px;transition:0.3s}
+body.dark{background:#1a1a24;color:#eee}
+.hidden{display:none !important}
+
+/*底部导航*/
+.nav-bar{position:fixed;left:0;right:0;bottom:0;height:54px;background:#fff;display:flex;border-top:1px solid #ddd;z-index:99}
+.dark .nav-bar{background:#272735;border-color:#383848}
+.nav-item{flex:1;text-align:center;line-height:54px;font-size:14px;color:#666}
+.nav-item.active{color:#2563eb;font-weight:bold}
+
+/*页面容器*/
+.page{padding:16px;display:none}
+.page.active{display:block}
+.title{font-size:20px;font-weight:bold;margin-bottom:16px}
+.form-item{margin-bottom:12px}
+label{display:block;margin-bottom:4px;font-size:14px}
+input,select{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:16px;background:#fff}
+.dark input,.dark select{background:#303042;border-color:#444;color:#fff}
+button{width:100%;padding:12px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:16px;cursor:pointer;margin-top:8px}
+.btn-danger{background:#dc2626}
+.btn-edit{background:#10b981;width:auto;padding:6px 8px;font-size:13px}
+
+table{width:100%;border-collapse:collapse;margin-top:12px;font-size:14px}
+td,th{border:1px solid #ddd;padding:8px;text-align:center}
+.dark td,.dark th{border-color:#383848}
+.green{color:#16a34a;font-weight:bold}
+.red{color:#dc2626;font-weight:bold}
+.gray{color:#888}
+
+.chart-wrap{height:320px;margin:16px 0}
+.tab-group{display:flex;gap:6px;margin:12px 0}
+.tab-item,.chart-tab{padding:6px 12px;border-radius:6px;background:#e5e7eb;cursor:pointer;font-size:14px}
+.dark .tab-item,.dark .chart-tab{background:#383848}
+.tab-item.active,.chart-tab.active{background:#2563eb;color:#fff}
+
+/*弹窗*/
+.popup{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:200}
+.popup-box{width:90%;max-width:420px;background:#fff;padding:20px;border-radius:12px}
+.dark .popup-box{background:#272735}
+.budget-tip{padding:10px;background:#fff3cd;border-radius:8px;margin:10px 0;color:#92400e}
+.dark .budget-tip{background:#443b24;color:#ffd480}
+.lock-tip{padding:8px;background:#fee2e2;color:#991b1b;border-radius:8px;margin:8px 0;font-size:14px}
+</style>
+</head>
+<body>
+
+<!--解锁弹窗-->
+<div id="lockPopup" class="popup">
+    <div class="popup-box">
+        <div class="title">记账本解锁</div>
+        <div class="form-item">
+            <label>输入密码</label>
+            <input id="pwdInput" type="password" placeholder="请输入密码">
+        </div>
+        <button onclick="unlockApp()">确认解锁</button>
+    </div>
+</div>
+
+<!--试用到期弹窗-->
+<div id="trialPopup" class="popup hidden">
+    <div class="popup-box">
+        <div class="title">试用已到期</div>
+        <p style="margin:10px 0">免费试用结束，激活解锁全部记账功能</p>
+        <button onclick="activateApp()">永久激活</button>
+        <button style="background:#666;margin-top:6px" onclick="closeTrialPopup()">稍后再说</button>
+    </div>
+</div>
+
+<!--编辑弹窗-->
+<div id="editPopup" class="popup hidden">
+    <div class="popup-box">
+        <div class="title" id="editTitle">修改记录</div>
+        <input type="hidden" id="editId">
+        <div class="form-item">
+            <label>日期</label>
+            <input id="editDate" type="date">
+        </div>
+        <div class="form-item">
+            <label>类型</label>
+            <select id="editType" onchange="refreshEditCatSelect()">
+                <option value="exp">支出</option>
+                <option value="inc">收入</option>
+            </select>
+        </div>
+        <div class="form-item">
+            <label>分类</label>
+            <select id="editCat"></select>
+        </div>
+        <div class="form-item">
+            <label>金额</label>
+            <input id="editMoney" type="number" step="0.01" min="0">
+        </div>
+        <div class="form-item">
+            <label>备注</label>
+            <input id="editDesc" type="text">
+        </div>
+        <button onclick="saveEditRecord()">保存修改</button>
+        <button style="background:#666;margin-top:6px" onclick="closeEditPopup()">取消</button>
+    </div>
+</div>
+
+<!--密码设置弹窗-->
+<div id="pwdSetPopup" class="popup hidden">
+    <div class="popup-box">
+        <div class="title">修改密码</div>
+        <div class="form-item">
+            <label>新密码</label>
+            <input id="newPwd" type="password">
+        </div>
+        <div class="form-item">
+            <label>确认密码</label>
+            <input id="confirmPwd" type="password">
+        </div>
+        <button onclick="saveNewPwd()">保存密码</button>
+        <button style="background:#666;margin-top:6px" onclick="closePwdPopup()">取消</button>
+    </div>
+</div>
+
+<!--主页面内容（解锁后显示）-->
+<div id="mainPage" class="hidden">
+    <!--快记页面-->
+    <div id="pageQuick" class="page active">
+        <div class="title">添加记录</div>
+        <div id="quickLockTip" class="lock-tip hidden">试用已到期，无法新增记录</div>
+        <div class="form-item">
+            <label>日期</label>
+            <input id="quickDate" type="date">
+        </div>
+        <div class="form-item">
+            <label>类型</label>
+            <select id="quickType" onchange="refreshQuickCatSelect()">
+                <option value="exp">支出</option>
+                <option value="inc">收入</option>
+            </select>
+        </div>
+        <div class="form-item">
+            <label>分类</label>
+            <select id="quickCat"></select>
+        </div>
+        <div class="form-item">
+            <label>金额</label>
+            <input id="quickMoney" type="number" step="0.01" min="0" placeholder="填写金额">
+        </div>
+        <div class="form-item">
+            <label>备注</label>
+            <input id="quickDesc" type="text" placeholder="简单备注">
+        </div>
+        <button onclick="saveQuickRecord()">保存记录</button>
+        <div style="margin-top:20px">
+            <div class="title">最近6条记录</div>
+            <div id="listLockTip" class="lock-tip hidden">试用到期，不能编辑删除</div>
+            <table>
+                <thead>
+                    <tr><th>日期</th><th>分类</th><th>金额</th><th>操作</th></tr>
+                </thead>
+                <tbody id="quickListBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!--明细页面-->
+    <div id="pageList" class="page">
+        <div class="title">全部明细</div>
+        <div class="form-item">
+            <select id="listFilterSelect" onchange="refreshAll()">
+                <option value="day">今日</option>
+                <option value="week">本周</option>
+                <option value="month">本月</option>
+                <option value="year">本年</option>
+                <option value="all">全部</option>
+            </select>
+        </div>
+        <div class="form-item">
+            <input id="searchInput" type="text" placeholder="搜索分类/备注" oninput="refreshAll()">
+        </div>
+        <table>
+            <thead>
+                <tr><th>日期</th><th>类型</th><th>分类</th><th>金额</th><th>操作</th></tr>
+            </thead>
+            <tbody id="listAllBody"></tbody>
+        </table>
+    </div>
+
+    <!--统计页面-->
+    <div id="pageStat" class="page">
+        <div class="title">收支统计</div>
+        <div class="tab-group">
+            <div class="tab-item active" onclick="switchMode('week',this)">本周</div>
+            <div class="tab-item" onclick="switchMode('month',this)">本月</div>
+            <div class="tab-item" onclick="switchMode('year',this)">本年</div>
+        </div>
+        <div class="tab-group">
+            <div class="chart-tab active" onclick="switchChart('line',this)">趋势图</div>
+            <div class="chart-tab" onclick="switchChart('pie',this)">支出饼图</div>
+        </div>
+        <div class="chart-wrap">
+            <canvas id="mainChart"></canvas>
+        </div>
+        <div style="margin-top:12px;font-size:16px">
+            <p>总收入：<span class="green" id="sumInc">0.00</span></p>
+            <p>总支出：<span class="red" id="sumExp">0.00</span></p>
+            <p>结余：<span id="sumBal" class="stat-bal">0.00</span></p>
+        </div>
+    </div>
+
+    <!--我的页面-->
+    <div id="pageMine" class="page">
+        <div class="title">设置</div>
+        <div class="form-item">
+            <label>月度预算</label>
+            <input id="budgetInput" type="number" step="0.01" min="0">
+            <button onclick="saveBudget()" style="margin-top:6px">保存预算</button>
+            <div id="budgetWarning"></div>
+        </div>
+        <button onclick="toggleDarkMode()">切换深色/浅色模式</button>
+        <button onclick="openPwdSetting()">修改解锁密码</button>
+        <div style="margin-top:20px;padding:12px;background:#eee;border-radius:8px">
+            <p id="trialStatusTip"></p>
+            <button id="activateBtn" onclick="activateApp()" style="margin-top:8px">永久激活</button>
+        </div>
+    </div>
+
+    <!--底部导航-->
+    <div class="nav-bar">
+        <div class="nav-item active" onclick="switchTab('pageQuick',this)">记账</div>
+        <div class="nav-item" onclick="switchTab('pageList',this)">明细</div>
+        <div class="nav-item" onclick="switchTab('pageStat',this)">统计</div>
+        <div class="nav-item" onclick="switchTab('pageMine',this)">我的</div>
+    </div>
+</div>
+
+<script>
+let currentMode="week";
+let currentChartType="line";
+let chartObj=null;
+const PWD_KEY="lockPassword";
+const RECORD_KEY="personalRecords";
+const BUDGET_KEY="monthBudget";
+const DARK_KEY="darkMode";
+const TRIAL_START_KEY="trialStartTs";
+const ACTIVATED_KEY="activatedPermanent";
+const TRIAL_DAYS=3;
+
+const CATEGORIES={
+    exp:["餐饮","交通","购物","房租水电","医疗","其他"],
+    inc:["工资","兼职","红包","理财收益","其他"]
+};
+
+function getTrialStartTimestamp(){
+    let ts=localStorage.getItem(TRIAL_START_KEY);
+    if(!ts){
+        ts=Date.now();
+        localStorage.setItem(TRIAL_START_KEY,ts);
+    }
+    return Number(ts);
+}
+function isActivated(){
+    return localStorage.getItem(ACTIVATED_KEY)==="1";
+}
+function activateApp(){
+    localStorage.setItem(ACTIVATED_KEY,"1");
+    document.getElementById("trialPopup").classList.add("hidden");
+    refreshAll();
+    alert("✅激活成功！永久解锁全部记账功能");
+}
+function closeTrialPopup(){
+    document.getElementById("trialPopup").classList.add("hidden");
+}
+function checkTrialExpired(){
+    if(isActivated())return false;
+    const startTs=getTrialStartTimestamp();
+    const ms3Days=TRIAL_DAYS*24*60*60*1000;
+    const expireTs=startTs+ms3Days;
+    const now=Date.now();
+    return now>expireTs;
+}
+function getRemainDay(){
+    if(isActivated())return -1;
+    const startTs=getTrialStartTimestamp();
+    const ms3Days=TRIAL_DAYS*24*60*60*1000;
+    const expireTs=startTs+ms3Days;
+    const remainMs=expireTs-Date.now();
+    if(remainMs<=0)return 0;
+    return Math.ceil(remainMs/(24*60*60*1000));
+}
+
+function loadDarkMode(){
+    return localStorage.getItem(DARK_KEY)==="1";
+}
+function applyDark(){
+    if(loadDarkMode()){
+        document.body.classList.add("dark");
+    }else{
+        document.body.classList.remove("dark");
+    }
+}
+function toggleDarkMode(){
+    const isDark=loadDarkMode();
+    localStorage.setItem(DARK_KEY,isDark?"0":"1");
+    applyDark();
+}
+
+function setQuickTodayDate(){
+    const dateInput=document.getElementById("quickDate");
+    if(dateInput){
+        dateInput.value=getToday();
+    }
+}
+
+function switchTab(pageId,navDom){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById(pageId).classList.add("active");
+    document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+    navDom.classList.add("active");
+    if(pageId==="pageQuick"){
+        setQuickTodayDate();
+        refreshQuickCatSelect();
+    }
+    refreshAll();
+}
+
+function getPwdHash(pwd){
+    return CryptoJS.MD5(pwd).toString();
+}
+function getLocalPwd(){
+    return localStorage.getItem(PWD_KEY)||"";
+}
+function unlockApp(){
+    const input=document.getElementById("pwdInput").value.trim();
+    const saved=getLocalPwd();
+    if(saved===""){
+        localStorage.setItem(PWD_KEY,getPwdHash(input));
+        enterMain();
+        alert("密码设置成功！");
+    }else if(getPwdHash(input)===saved){
+        enterMain();
+    }else{
+        alert("密码错误");
+    }
+}
+function enterMain(){
+    document.getElementById("lockPopup").classList.add("hidden");
+    document.getElementById("mainPage").classList.remove("hidden");
+    setTimeout(()=>{
+        initApp();
+        setQuickTodayDate();
+        refreshQuickCatSelect();
+    },120)
+}
+function openPwdSetting(){
+    document.getElementById("pwdSetPopup").classList.remove("hidden");
+}
+function closePwdPopup(){
+    document.getElementById("pwdSetPopup").classList.add("hidden");
+}
+function saveNewPwd(){
+    const p1=document.getElementById("newPwd").value.trim();
+    const p2=document.getElementById("confirmPwd").value.trim();
+    if(!p1||p1!==p2){alert("两次密码不一致");return}
+    localStorage.setItem(PWD_KEY,getPwdHash(p1));
+    closePwdPopup();
+    alert("密码更新完成！");
+}
+
+function getRecords(){
+    const raw=localStorage.getItem(RECORD_KEY);
+    return raw?JSON.parse(raw):[];
+}
+function saveRecords(arr){
+    localStorage.setItem(RECORD_KEY,JSON.stringify(arr));
+}
+
+function refreshQuickCatSelect(){
+    const typeDom=document.getElementById("quickType");
+    if(!typeDom)return;
+    const type=typeDom.value;
+    const sel=document.getElementById("quickCat");
+    if(!sel)return;
+    sel.innerHTML="";
+    CATEGORIES[type].forEach(c=>{
+        const opt=document.createElement("option");
+        opt.value=c;
+        opt.textContent=c;
+        sel.appendChild(opt);
+    })
+}
+function refreshEditCatSelect(){
+    const type=document.getElementById("editType").value;
+    const sel=document.getElementById("editCat");
+    sel.innerHTML="";
+    CATEGORIES[type].forEach(c=>{
+        const opt=document.createElement("option");
+        opt.value=c;
+        opt.textContent=c;
+        sel.appendChild(opt);
+    })
+}
+
+function saveQuickRecord(){
+    try{
+        const expired=checkTrialExpired();
+        if(expired&&!isActivated()){
+            alert("试用已到期，请激活解锁！");
+            return;
+        }
+        const date=document.getElementById("quickDate").value;
+        const type=document.getElementById("quickType").value;
+        const cat=document.getElementById("quickCat").value;
+        const moneyVal=document.getElementById("quickMoney").value;
+        const money=parseFloat(moneyVal||0);
+        const desc=document.getElementById("quickDesc").value.trim();
+
+        if(!date){
+            alert("请选择日期");
+            return;
+        }
+        if(isNaN(money)||money<=0){
+            alert("请填写大于0的金额");
+            return;
+        }
+        const arr=getRecords();
+        arr.push({date,type,cat,money,desc,id:Date.now()});
+        saveRecords(arr);
+        document.getElementById("quickMoney").value="";
+        document.getElementById("quickDesc").value="";
+        refreshAll();
+        alert("✅保存成功");
+    }catch(err){
+        console.error("保存出错：",err);
+        alert("保存失败，按F12打开控制台查看错误！");
+    }
+}
+
+function openEditPopup(id){
+    const expired=checkTrialExpired();
+    if(expired&&!isActivated()){
+        alert("试用已到期，请激活解锁！");
+        return;
+    }
+    const list=getRecords();
+    const row=list.find(r=>r.id===id);
+    if(!row)return;
+    document.getElementById("editTitle").innerText="修改记录";
+    document.getElementById("editId").value=row.id;
+    document.getElementById("editDate").value=row.date;
+    document.getElementById("editType").value=row.type;
+    refreshEditCatSelect();
+    document.getElementById("editCat").value=row.cat;
+    document.getElementById("editMoney").value=row.money;
+    document.getElementById("editDesc").value=row.desc;
+    document.getElementById("editPopup").classList.remove("hidden");
+}
+function closeEditPopup(){
+    document.getElementById("editPopup").classList.add("hidden");
+}
+function saveEditRecord(){
+    try{
+        const expired=checkTrialExpired();
+        if(expired&&!isActivated()){
+            alert("试用已到期，请激活解锁！");
+            return;
+        }
+        const idVal=document.getElementById("editId").value;
+        const date=document.getElementById("editDate").value;
+        const type=document.getElementById("editType").value;
+        const cat=document.getElementById("editCat").value;
+        const money=parseFloat(document.getElementById("editMoney").value||0);
+        const desc=document.getElementById("editDesc").value.trim();
+        if(!date||isNaN(money)||money<=0){alert("请填写日期和大于0的金额");return;}
+        let arr=getRecords();
+        const idx=arr.findIndex(x=>x.id===Number(idVal));
+        arr[idx]={date,type,cat,money,desc,id:Number(idVal)};
+        saveRecords(arr);
+        closeEditPopup();
+        refreshAll();
+        alert("✅修改成功");
+    }catch(err){
+        console.error("编辑保存错误：",err);
+        alert("修改失败！");
+    }
+}
+function deleteRecord(id){
+    const expired=checkTrialExpired();
+    if(expired&&!isActivated()){
+        alert("试用已到期，请激活解锁！");
+        return;
+    }
+    if(!confirm("确定删除这条记录？"))return;
+    const list=getRecords().filter(r=>r.id!==id);
+    saveRecords(list);
+    refreshAll();
+}
+
+function loadBudget(){
+    return parseFloat(localStorage.getItem(BUDGET_KEY)||0);
+}
+function saveBudget(){
+    const expired=checkTrialExpired();
+    if(expired&&!isActivated()){
+        alert("试用已到期，请激活解锁！");
+        return;
+    }
+    const val=parseFloat(document.getElementById("budgetInput").value||0);
+    localStorage.setItem(BUDGET_KEY,val);
+    refreshBudgetWarning();
+}
+function refreshBudgetWarning(){
+    const budget=loadBudget();
+    const now=new Date();
+    const y=now.getFullYear(),m=now.getMonth();
+    const start=new Date(y,m,1);
+    const end=new Date(y,m+1,0,23,59,59,999);
+    const monthExp=getRecords().filter(r=>{
+        const dt=new Date(r.date);
+        return dt>=start&&dt<=end&&r.type==="exp";
+    }).reduce((sum,item)=>sum+item.money,0);
+    const tipDom=document.getElementById("budgetWarning");
+    if(budget<=0){
+        tipDom.innerHTML="";return;
+    }
+    if(monthExp>budget){
+        tipDom.innerHTML=`<div class='budget-tip'>⚠本月已超预算！已支出${monthExp.toFixed(2)}，预算${budget.toFixed(2)}</div>`;
+    }else{
+        tipDom.innerHTML=`<div class='budget-tip'>✅本月预算剩余${(budget-monthExp).toFixed(2)}</div>`;
+    }
+}
+
+function getToday(){
+    const d=new Date();
+    const y=d.getFullYear();
+    const m=String(d.getMonth()+1).padStart(2,'0');
+    const day=String(d.getDate()).padStart(2,'0');
+    return `${y}-${m}-${day}`;
+}
+function filterByRange(list,range){
+    const now=new Date();
+    const y=now.getFullYear();
+    const m=now.getMonth();
+    const d=now.getDate();
+    let start,end;
+    if(range==="day"){
+        start=new Date(y,m,d,0,0,0);
+        end=new Date(y,m,d,23,59,59,999);
+    }else if(range==="week"){
+        let wDay=now.getDay()||7;
+        let s=new Date(now);
+        s.setDate(d-wDay+1);
+        s.setHours(0,0,0,0);
+        let e=new Date(s);
+        e.setDate(s.getDate()+6);
+        e.setHours(23,59,59,999);
+        start=s;end=e;
+    }else if(range==="month"){
+        start=new Date(y,m,1);
+        end=new Date(y,m+1,0,23,59,59,999);
+    }else if(range==="year"){
+        start=new Date(y,0,1);
+        end=new Date(y,11,31,23,59,59,999);
+    }else{
+        return list;
+    }
+    return list.filter(item=>{
+        let dt=new Date(item.date);
+        return dt>=start&&dt<=end;
+    })
+}
+function switchMode(mode,dom){
+    currentMode=mode;
+    document.querySelectorAll(".tab-item").forEach(t=>t.classList.remove("active"));
+    dom.classList.add("active");
+    refreshAll();
+}
+function switchChart(chartType,dom){
+    currentChartType=chartType;
+    document.querySelectorAll(".chart-tab").forEach(t=>t.classList.remove("active"));
+    dom.classList.add("active");
+    drawChart(filterByRange(getRecords(),currentMode));
+}
+function drawChart(filtered){
+    const ctx=document.getElementById("mainChart").getContext("2d");
+    if(chartObj)chartObj.destroy();
+    if(currentChartType==="line"){
+        let groupMap={};
+        filtered.forEach(r=>{
+            let k=r.date;
+            if(!groupMap[k])groupMap[k]={inc:0,exp:0};
+            if(r.type==="inc")groupMap[k].inc+=r.money;
+            else groupMap[k].exp+=r.money;
+        })
+        let keys=Object.keys(groupMap).sort();
+        let incData=keys.map(k=>groupMap[k].inc);
+        let expData=keys.map(k=>groupMap[k].exp);
+        chartObj=new Chart(ctx,{
+            type:"line",
+            data:{
+                labels:keys,
+                datasets:[
+                    {label:"收入",data:incData,borderColor:"#16a34a",backgroundColor:"rgba(22,163,74,0.12)",fill:true,tension:0.35},
+                    {label:"支出",data:expData,borderColor:"#dc2626",backgroundColor:"rgba(220,38,38,0.12)",fill:true,tension:0.35}
+                ]
+            },
+            options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"top"}}}
+        })
+    }else if(currentChartType==="pie"){
+        const expList=filtered.filter(r=>r.type==="exp");
+        const pieMap={};
+        expList.forEach(r=>{
+            if(!pieMap[r.cat])pieMap[r.cat]=0;
+            pieMap[r.cat]+=r.money;
+        })
+        const labels=Object.keys(pieMap);
+        const values=labels.map(k=>pieMap[k]);
+        const colorPool=["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#84cc16"];
+        chartObj=new Chart(ctx,{
+            type:"pie",
+            data:{labels:labels,datasets:[{data:values,backgroundColor:colorPool}]},
+            options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"right"}}}
+        })
+    }
+}
+function refreshAll(){
+    const expired=checkTrialExpired();
+    const remain=getRemainDay();
+    const tipDom=document.getElementById("trialStatusTip");
+    const activateBtn=document.getElementById("activateBtn");
+    if(isActivated()){
+        tipDom.innerText="🎉已永久激活，全部功能无限制";
+        activateBtn.classList.add("hidden");
+    }else if(expired){
+        tipDom.innerText="⏰免费试用已结束，充值解锁全部功能";
+        activateBtn.classList.remove("hidden");
+        document.getElementById("trialPopup").classList.remove("hidden");
+    }else{
+        tipDom.innerText=`⏳免费试用剩余 ${remain} 天，充值1元永久使用`;
+        activateBtn.classList.remove("hidden");
+    }
+    document.getElementById("quickLockTip").classList.toggle("hidden",!expired||isActivated());
+    document.getElementById("listLockTip").classList.toggle("hidden",!expired||isActivated());
+
+    refreshBudgetWarning();
+    document.getElementById("budgetInput").value=loadBudget()||"";
+    refreshQuickCatSelect();
+    const allRecords=getRecords();
+    const recentList=allRecords.slice().sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,6);
+    const quickTbody=document.getElementById("quickListBody");
+    quickTbody.innerHTML="";
+    recentList.forEach(row=>{
+        let tr=document.createElement("tr");
+        let opHtml="";
+        if(!expired||isActivated()){
+            opHtml=`
+              <button class="btn-edit" onclick="openEditPopup(${row.id})">编辑</button>
+              <button class="btn-danger" onclick="deleteRecord(${row.id})">删除</button>
+            `;
+        }
+        tr.innerHTML=`
+          <td>${row.date}</td>
+          <td>${row.cat}</td>
+          <td ${row.type==='inc'?'class="green"':'class="red"'}>${row.money.toFixed(2)}</td>
+          <td style="display:flex;gap:4px;justify-content:center">${opHtml}</td>
+        `;
+        quickTbody.appendChild(tr);
+    })
+    const filterVal=document.getElementById("listFilterSelect").value;
+    let filteredList=filterByRange(allRecords,filterVal);
+    const keyword=document.getElementById("searchInput").value.trim().toLowerCase();
+    if(keyword){
+        filteredList=filteredList.filter(item=>{
+            return item.cat.toLowerCase().includes(keyword)||item.desc.toLowerCase().includes(keyword);
+        })
+    }
+    filteredList=filteredList.slice().sort((a,b)=>new Date(b.date)-new Date(a.date));
+    const allTbody=document.getElementById("listAllBody");
+    allTbody.innerHTML="";
+    filteredList.forEach(row=>{
+        let tr=document.createElement("tr");
+        let opHtml="";
+        if(!expired||isActivated()){
+            opHtml=`
+              <button class="btn-edit" onclick="openEditPopup(${row.id})">编辑</button>
+              <button class="btn-danger" onclick="deleteRecord(${row.id})">删除</button>
+            `;
+        }
+        tr.innerHTML=`
+          <td>${row.date}</td>
+          <td ${row.type==='inc'?'class="green"':'class="red"'}>${row.type==='inc'?'收入':'支出'}</td>
+          <td>${row.cat}</td>
+          <td ${row.type==='inc'?'class="green"':'class="red"'}>${row.money.toFixed(2)}</td>
+          <td style="display:flex;gap:4px;justify-content:center">${opHtml}</td>
+        `;
+        allTbody.appendChild(tr);
+    })
+    const filterStat=filterByRange(allRecords,currentMode);
+    let sumInc=0,sumExp=0;
+    filterStat.forEach(r=>{
+        if(r.type==="inc")sumInc+=r.money;
+        else sumExp+=r.money;
+    })
+    const bal=sumInc-sumExp;
+    document.getElementById("sumInc").innerText=sumInc.toFixed(2);
+    document.getElementById("sumExp").innerText=sumExp.toFixed(2);
+    const balDom=document.getElementById("sumBal");
+    balDom.innerText=bal.toFixed(2);
+    if(bal>0)balDom.className="stat-bal green";
+    else if(bal<0)balDom.className="stat-bal red";
+    else balDom.className="stat-bal gray";
+    drawChart(filterStat);
+}
+function initApp(){
+    applyDark();
+    refreshAll();
+}
+window.onload=()=>{
+    applyDark();
+    if(getLocalPwd()===""){
+        alert("首次使用，请设置解锁密码保护数据");
+    }
+}
+</script>
+</body>
+</html>
